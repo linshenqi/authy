@@ -9,6 +9,10 @@ github.com/aymerick/raymond
 github.com/aymerick/raymond/ast
 github.com/aymerick/raymond/lexer
 github.com/aymerick/raymond/parser
+# github.com/boombuler/barcode v1.0.1-0.20190219062509-6c824513bacc
+github.com/boombuler/barcode
+github.com/boombuler/barcode/qr
+github.com/boombuler/barcode/utils
 # github.com/davecgh/go-spew v1.1.1
 github.com/davecgh/go-spew/spew
 # github.com/dgrijalva/jwt-go v3.2.0+incompatible
@@ -94,6 +98,10 @@ github.com/modern-go/reflect2
 github.com/pkg/errors
 # github.com/pmezard/go-difflib v1.0.0
 github.com/pmezard/go-difflib/difflib
+# github.com/pquerna/otp v1.2.0
+github.com/pquerna/otp
+github.com/pquerna/otp/hotp
+github.com/pquerna/otp/totp
 # github.com/rs/xid v1.2.1
 github.com/rs/xid
 # github.com/ryanuber/columnize v2.1.0+incompatible
