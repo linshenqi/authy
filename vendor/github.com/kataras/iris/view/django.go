@@ -11,25 +11,24 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/kataras/iris/context"
-
 	"github.com/flosch/pongo2"
+	"github.com/kataras/iris/context"
 )
 
 type (
-	// Value type alias for pongo2.Value
-	Value = pongo2.Value
-	// Error type alias for pongo2.Error
-	Error = pongo2.Error
-	// FilterFunction type alias for pongo2.FilterFunction
-	FilterFunction = pongo2.FilterFunction
+	// Value conversion for pongo2.Value
+	Value pongo2.Value
+	// Error conversion for pongo2.Error
+	Error pongo2.Error
+	// FilterFunction conversion for pongo2.FilterFunction
+	FilterFunction func(in *Value, param *Value) (out *Value, err *Error)
 
-	// Parser type alias for pongo2.Parser
-	Parser = pongo2.Parser
-	// Token type alias for pongo2.Token
-	Token = pongo2.Token
-	// INodeTag type alias for pongo2.InodeTag
-	INodeTag = pongo2.INodeTag
+	// Parser conversion for pongo2.Parser
+	Parser pongo2.Parser
+	// Token conversion for pongo2.Token
+	Token pongo2.Token
+	// INodeTag conversion for pongo2.InodeTag
+	INodeTag pongo2.INodeTag
 	// TagParser the function signature of the tag's parser you will have
 	// to implement in order to create a new tag.
 	//
@@ -42,22 +41,44 @@ type (
 	//
 	// Please see the Parser documentation on how to use the parser.
 	// See `RegisterTag` for more information about writing a tag as well.
-	TagParser = pongo2.TagParser
+	TagParser func(doc *Parser, start *Token, arguments *Parser) (INodeTag, *Error)
 )
 
-// AsValue converts any given value to a pongo2.Value
+// AsValue converts any given value to a view.Value.
 // Usually being used within own functions passed to a template
 // through a Context or within filter functions.
-//
-// Example:
-//     AsValue("my string")
-//
-// Shortcut for `pongo2.AsValue`.
-var AsValue = pongo2.AsValue
+func AsValue(i interface{}) *Value {
+	return (*Value)(pongo2.AsValue(i))
+}
 
 // AsSafeValue works like AsValue, but does not apply the 'escape' filter.
-// Shortcut for `pongo2.AsSafeValue`.
-var AsSafeValue = pongo2.AsSafeValue
+func AsSafeValue(i interface{}) *Value {
+	return (*Value)(pongo2.AsSafeValue(i))
+}
+
+// GetValue returns the `Value` as *pongo2.Value type.
+// This method was added by balthild at https://github.com/kataras/iris/pull/765
+func (value *Value) GetValue() *pongo2.Value {
+	return (*pongo2.Value)(value)
+}
+
+// GetError returns the `Error` as *pongo2.Error type.
+// This method was added by balthild at https://github.com/kataras/iris/pull/765
+func (error *Error) GetError() *pongo2.Error {
+	return (*pongo2.Error)(error)
+}
+
+// GetParser returns the `Parser` as *pongo2.Parser type.
+// This method was added by balthild at https://github.com/kataras/iris/pull/765
+func (parser *Parser) GetParser() *pongo2.Parser {
+	return (*pongo2.Parser)(parser)
+}
+
+// GetToken returns the `Token` as *pongo2.Token type.
+// This method was added by balthild at https://github.com/kataras/iris/pull/765
+func (token *Token) GetToken() *pongo2.Token {
+	return (*pongo2.Token)(token)
+}
 
 type tDjangoAssetLoader struct {
 	baseDir  string
@@ -88,7 +109,7 @@ func (dal *tDjangoAssetLoader) Get(path string) (io.Reader, error) {
 	return bytes.NewBuffer(res), nil
 }
 
-// DjangoEngine contains the django view engine structure.
+// DjangoEngine contains the amber view engine structure.
 type DjangoEngine struct {
 	// files configuration
 	directory string
@@ -106,7 +127,7 @@ type DjangoEngine struct {
 	templateCache map[string]*pongo2.Template
 }
 
-var _ Engine = (*DjangoEngine)(nil)
+var _ Engine = &DjangoEngine{}
 
 // Django creates and returns a new amber view engine.
 func Django(directory, extension string) *DjangoEngine {
@@ -135,7 +156,7 @@ func (s *DjangoEngine) Binary(assetFn func(name string) ([]byte, error), namesFn
 	return s
 }
 
-// Reload if set to true the templates are reloading on each render,
+// Reload if setted to true the templates are reloading on each render,
 // use it when you're in development and you're boring of restarting
 // the whole app when you edit a template file.
 //
@@ -179,8 +200,13 @@ func (s *DjangoEngine) RegisterFilter(filterName string, filterBody FilterFuncti
 	return s.registerFilter(filterName, filterBody)
 }
 
-func (s *DjangoEngine) registerFilter(filterName string, fn FilterFunction) *DjangoEngine {
+func (s *DjangoEngine) registerFilter(filterName string, filterBody FilterFunction) *DjangoEngine {
+	fn := pongo2.FilterFunction(func(in *pongo2.Value, param *pongo2.Value) (*pongo2.Value, *pongo2.Error) {
+		theOut, theErr := filterBody((*Value)(in), (*Value)(param))
+		return (*pongo2.Value)(theOut), (*pongo2.Error)(theErr)
+	})
 	pongo2.RegisterFilter(filterName, fn)
+
 	return s
 }
 
@@ -190,12 +216,17 @@ func (s *DjangoEngine) registerFilter(filterName string, fn FilterFunction) *Dja
 //
 // See http://www.florian-schlachter.de/post/pongo2/ for more about
 // writing filters and tags.
-func (s *DjangoEngine) RegisterTag(tagName string, fn TagParser) error {
+func (s *DjangoEngine) RegisterTag(tagName string, parserFn TagParser) error {
+	fn := func(doc *pongo2.Parser, start *pongo2.Token, arguments *pongo2.Parser) (pongo2.INodeTag, *pongo2.Error) {
+		t, err := parserFn((*Parser)(doc), (*Token)(start), (*Parser)(arguments))
+		return t, (*pongo2.Error)(err)
+	}
+
 	return pongo2.RegisterTag(tagName, fn)
 }
 
 // Load parses the templates to the engine.
-// It is responsible to add the necessary global functions.
+// It's alos responsible to add the necessary global functions.
 //
 // Returns an error if something bad happens, user is responsible to catch it.
 func (s *DjangoEngine) Load() error {
@@ -210,7 +241,7 @@ func (s *DjangoEngine) Load() error {
 	if err != nil {
 		return err
 	}
-	// change the directory field configuration, load happens after directory has been set, so we will not have any problems here.
+	// change the directory field configuration, load happens after directory has been setted, so we will not have any problems here.
 	s.directory = dir
 	return s.loadDirectory()
 }

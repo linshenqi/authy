@@ -1,4 +1,5 @@
 *.go linguist-language=Go
+vendor/* linguist-vendored
 _examples/* linguist-documentation
 _benchmarks/* linguist-documentation
 # Set the default behavior, in case people don't have core.autocrlf set.

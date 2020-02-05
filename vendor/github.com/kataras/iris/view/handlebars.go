@@ -27,8 +27,6 @@ type HandlebarsEngine struct {
 	templateCache map[string]*raymond.Template
 }
 
-var _ Engine = (*HandlebarsEngine)(nil)
-
 // Handlebars creates and returns a new handlebars view engine.
 func Handlebars(directory, extension string) *HandlebarsEngine {
 	s := &HandlebarsEngine{
@@ -64,7 +62,7 @@ func (s *HandlebarsEngine) Binary(assetFn func(name string) ([]byte, error), nam
 	return s
 }
 
-// Reload if set to true the templates are reloading on each render,
+// Reload if setted to true the templates are reloading on each render,
 // use it when you're in development and you're boring of restarting
 // the whole app when you edit a template file.
 //
@@ -97,7 +95,7 @@ func (s *HandlebarsEngine) AddFunc(funcName string, funcBody interface{}) {
 }
 
 // Load parses the templates to the engine.
-// It is responsible to add the necessary global functions.
+// It's alos responsible to add the necessary global functions.
 //
 // Returns an error if something bad happens, user is responsible to catch it.
 func (s *HandlebarsEngine) Load() error {
@@ -111,7 +109,7 @@ func (s *HandlebarsEngine) Load() error {
 	if err != nil {
 		return err
 	}
-	// change the directory field configuration, load happens after directory has been set, so we will not have any problems here.
+	// change the directory field configuration, load happens after directory has been setted, so we will not have any problems here.
 	s.directory = dir
 	return s.loadDirectory()
 }

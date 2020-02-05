@@ -6,6 +6,10 @@ import (
 	_ "github.com/jinzhu/gorm/dialects/postgres"
 )
 
+const (
+	ModelServiceName = "model"
+)
+
 type ModelConfig struct {
 	Enable  bool   `yaml:"enable"`
 	Source  string `yaml:"source"`
@@ -15,6 +19,20 @@ type ModelConfig struct {
 	Host    string `yaml:"host"`
 	Port    int    `yaml:"port"`
 	Timeout int    `yaml:"timeout"`
+}
+
+func (c *ModelConfig) ConfigName() string {
+	return ModelServiceName
+}
+
+func (c *ModelConfig) Validate() error {
+	return nil
+}
+
+func (c *ModelConfig) Default() interface{} {
+	return &ModelConfig{
+		Enable: false,
+	}
 }
 
 type ModelService struct {
@@ -46,12 +64,13 @@ func (s *ModelService) Init(app Sptty) error {
 	s.db = nil
 
 	cfg := ModelConfig{}
-	err := app.GetConfig("model", &cfg)
+	err := app.GetConfig(s.ServiceName(), &cfg)
 	if err != nil {
 		return err
 	}
 
 	if !cfg.Enable {
+		Log(InfoLevel, fmt.Sprintf("%s Service Is Disabled", s.ServiceName()), s.ServiceName())
 		return nil
 	}
 
@@ -77,10 +96,14 @@ func (s *ModelService) DB() *gorm.DB {
 
 func (s *ModelService) Release() {
 	if s.db != nil {
-		s.db.Close()
+		_ = s.db.Close()
 	}
 }
 
-func (s ModelService) Enable() bool {
+func (s *ModelService) Enable() bool {
 	return true
+}
+
+func (s *ModelService) ServiceName() string {
+	return ModelServiceName
 }

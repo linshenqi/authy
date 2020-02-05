@@ -1,13 +1,8 @@
 package iris
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
 	"io/ioutil"
-	"net/http"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"runtime"
@@ -351,7 +346,7 @@ func WithoutRemoteAddrHeader(headerName string) Configurator {
 
 // WithOtherValue adds a value based on a key to the Other setting.
 //
-// See `Configuration.Other`.
+// See `Configuration`.
 func WithOtherValue(key string, val interface{}) Configurator {
 	return func(app *Application) {
 		if app.config.Other == nil {
@@ -361,240 +356,13 @@ func WithOtherValue(key string, val interface{}) Configurator {
 	}
 }
 
-// WithTunneling is the `iris.Configurator` for the `iris.Configuration.Tunneling` field.
-// It's used to enable http tunneling for an Iris Application, per registered host
-//
-// Alternatively use the `iris.WithConfiguration(iris.Configuration{Tunneling: iris.TunnelingConfiguration{ ...}}}`.
-func WithTunneling(app *Application) {
-	conf := TunnelingConfiguration{
-		Tunnels: []Tunnel{{}}, // create empty tunnel, its addr and name are set right before host serve.
-	}
-
-	app.config.Tunneling = conf
-}
-
-// Tunnel is the Tunnels field of the TunnelingConfiguration structure.
-type Tunnel struct {
-	// Name is the only one required field,
-	// it is used to create and close tunnels, e.g. "MyApp".
-	// If this field is not empty then ngrok tunnels will be created
-	// when the iris app is up and running.
-	Name string `json:"name" yaml:"Name" toml:"Name"`
-	// Addr is basically optionally as it will be set through
-	// Iris built-in Runners, however, if `iris.Raw` is used
-	// then this field should be set of form 'hostname:port'
-	// because framework cannot be aware
-	// of the address you used to run the server on this custom runner.
-	Addr string `json:"addr,omitempty" yaml:"Addr" toml:"Addr"`
-}
-
-// TunnelingConfiguration contains configuration
-// for the optional tunneling through ngrok feature.
-// Note that the ngrok should be already installed at the host machine.
-type TunnelingConfiguration struct {
-	// AuthToken field is optionally and can be used
-	// to authenticate the ngrok access.
-	// ngrok authtoken <YOUR_AUTHTOKEN>
-	AuthToken string `json:"authToken,omitempty" yaml:"AuthToken" toml:"AuthToken"`
-
-	// No...
-	// Config is optionally and can be used
-	// to load ngrok configuration from file system path.
-	//
-	// If you don't specify a location for a configuration file,
-	// ngrok tries to read one from the default location $HOME/.ngrok2/ngrok.yml.
-	// The configuration file is optional; no error is emitted if that path does not exist.
-	// Config string `json:"config,omitempty" yaml:"Config" toml:"Config"`
-
-	// Bin is the system binary path of the ngrok executable file.
-	// If it's empty then the framework will try to find it through system env variables.
-	Bin string `json:"bin,omitempty" yaml:"Bin" toml:"Bin"`
-
-	// WebUIAddr is the web interface address of an already-running ngrok instance.
-	// Iris will try to fetch the default web interface address(http://127.0.0.1:4040)
-	// to determinate if a ngrok instance is running before try to start it manually.
-	// However if a custom web interface address is used,
-	// this field must be set e.g. http://127.0.0.1:5050.
-	WebInterface string `json:"webInterface,omitempty" yaml:"WebInterface" toml:"WebInterface"`
-
-	// Region is optionally, can be used to set the region which defaults to "us".
-	// Available values are:
-	// "us" for United States
-	// "eu" for Europe
-	// "ap" for Asia/Pacific
-	// "au" for Australia
-	// "sa" for South America
-	// "jp" forJapan
-	// "in" for India
-	Region string `json:"region,omitempty" yaml:"Region" toml:"Region"`
-
-	// Tunnels the collection of the tunnels.
-	// One tunnel per Iris Host per Application, usually you only need one.
-	Tunnels []Tunnel `json:"tunnels" yaml:"Tunnels" toml:"Tunnels"`
-}
-
-func (tc *TunnelingConfiguration) isEnabled() bool {
-	return tc != nil && len(tc.Tunnels) > 0
-}
-
-func (tc *TunnelingConfiguration) isNgrokRunning() bool {
-	_, err := http.Get(tc.WebInterface)
-	return err == nil
-}
-
-// https://ngrok.com/docs
-type ngrokTunnel struct {
-	Name    string `json:"name"`
-	Addr    string `json:"addr"`
-	Proto   string `json:"proto"`
-	Auth    string `json:"auth"`
-	BindTLS bool   `json:"bind_tls"`
-}
-
-func (tc TunnelingConfiguration) startTunnel(t Tunnel, publicAddr *string) error {
-	tunnelAPIRequest := ngrokTunnel{
-		Name:    t.Name,
-		Addr:    t.Addr,
-		Proto:   "http",
-		BindTLS: true,
-	}
-
-	if !tc.isNgrokRunning() {
-		ngrokBin := "ngrok" // environment binary.
-
-		if tc.Bin == "" {
-			_, err := exec.LookPath(ngrokBin)
-			if err != nil {
-				ngrokEnvVar, found := os.LookupEnv("NGROK")
-				if !found {
-					return fmt.Errorf(`"ngrok" executable not found, please install it from: https://ngrok.com/download`)
-				}
-
-				ngrokBin = ngrokEnvVar
-			}
-		} else {
-			ngrokBin = tc.Bin
-		}
-
-		if tc.AuthToken != "" {
-			cmd := exec.Command(ngrokBin, "authtoken", tc.AuthToken)
-			err := cmd.Run()
-			if err != nil {
-				return err
-			}
-		}
-
-		// start -none, start without tunnels.
-		//  and finally the -log stdout logs to the stdout otherwise the pipe will never be able to read from, spent a lot of time on this lol.
-		cmd := exec.Command(ngrokBin, "start", "-none", "-log", "stdout")
-
-		// if tc.Config != "" {
-		// 	cmd.Args = append(cmd.Args, []string{"-config", tc.Config}...)
-		// }
-		if tc.Region != "" {
-			cmd.Args = append(cmd.Args, []string{"-region", tc.Region}...)
-		}
-
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			return err
-		}
-
-		if err = cmd.Start(); err != nil {
-			return err
-		}
-
-		p := make([]byte, 256)
-		okText := []byte("client session established")
-		for {
-			n, err := stdout.Read(p)
-			if err != nil {
-				return err
-			}
-
-			// we need this one:
-			// msg="client session established"
-			// note that this will block if something terrible happens
-			// but ngrok's errors are strong so the error is easy to be resolved without any logs.
-			if bytes.Contains(p[:n], okText) {
-				break
-			}
-		}
-	}
-
-	return tc.createTunnel(tunnelAPIRequest, publicAddr)
-}
-
-func (tc TunnelingConfiguration) stopTunnel(t Tunnel) error {
-	url := fmt.Sprintf("%s/api/tunnels/%s", tc.WebInterface, t.Name)
-	req, err := http.NewRequest(http.MethodDelete, url, nil)
-	if err != nil {
-		return err
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-
-	if resp.StatusCode != StatusNoContent {
-		return fmt.Errorf("stop return an unexpected status code: %d", resp.StatusCode)
-	}
-
-	return nil
-}
-
-func (tc TunnelingConfiguration) createTunnel(tunnelAPIRequest ngrokTunnel, publicAddr *string) error {
-	url := fmt.Sprintf("%s/api/tunnels", tc.WebInterface)
-	requestData, err := json.Marshal(tunnelAPIRequest)
-	if err != nil {
-		return err
-	}
-
-	resp, err := http.Post(url, context.ContentJSONHeaderValue, bytes.NewBuffer(requestData))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	type publicAddrOrErrResp struct {
-		PublicAddr string `json:"public_url"`
-		Details    struct {
-			ErrorText string `json:"err"` // when can't bind more addresses, status code was successful.
-		} `json:"details"`
-		ErrMsg string `json:"msg"` // when ngrok is not yet ready, status code was unsuccessful.
-	}
-
-	var apiResponse publicAddrOrErrResp
-
-	err = json.NewDecoder(resp.Body).Decode(&apiResponse)
-	if err != nil {
-		return err
-	}
-
-	if errText := apiResponse.ErrMsg; errText != "" {
-		return errors.New(errText)
-	}
-
-	if errText := apiResponse.Details.ErrorText; errText != "" {
-		return errors.New(errText)
-	}
-
-	*publicAddr = apiResponse.PublicAddr
-	return nil
-}
-
 // Configuration the whole configuration for an iris instance
 // these can be passed via options also, look at the top of this file(configuration.go).
 // Configuration is a valid OptionSetter.
 type Configuration struct {
-	// vhost is private and set only with .Run method, it cannot be changed after the first set.
+	// vhost is private and setted only with .Run method, it cannot be changed after the first set.
 	// It can be retrieved by the context if needed (i.e router for subdomains)
 	vhost string
-
-	// Tunneling can be optionally set to enable ngrok http(s) tunneling for this Iris app instance.
-	// See the `WithTunneling` Configurator too.
-	Tunneling TunnelingConfiguration `json:"tunneling,omitempty" yaml:"Tunneling" toml"Tunneling"`
 
 	// IgnoreServerErrors will cause to ignore the matched "errors"
 	// from the main application's `Run` function.
@@ -609,11 +377,11 @@ type Configuration struct {
 	// Defaults to an empty slice.
 	IgnoreServerErrors []string `json:"ignoreServerErrors,omitempty" yaml:"IgnoreServerErrors" toml:"IgnoreServerErrors"`
 
-	// DisableStartupLog if set to true then it turns off the write banner on server startup.
+	// DisableStartupLog if setted to true then it turns off the write banner on server startup.
 	//
 	// Defaults to false.
 	DisableStartupLog bool `json:"disableStartupLog,omitempty" yaml:"DisableStartupLog" toml:"DisableStartupLog"`
-	// DisableInterruptHandler if set to true then it disables the automatic graceful server shutdown
+	// DisableInterruptHandler if setted to true then it disables the automatic graceful server shutdown
 	// when control/cmd+C pressed.
 	// Turn this to true if you're planning to handle this by your own via a custom host.Task.
 	//
@@ -633,7 +401,7 @@ type Configuration struct {
 
 	// DisablePathCorrectionRedirection works whenever configuration.DisablePathCorrection is set to false
 	// and if DisablePathCorrectionRedirection set to true then it will fire the handler of the matching route without
-	// the trailing slash ("/") instead of send a redirection status.
+	// the last slash ("/") instead of send a redirection status.
 	//
 	// Defaults to false.
 	DisablePathCorrectionRedirection bool `json:"disablePathCorrectionRedirection,omitempty" yaml:"DisablePathCorrectionRedirection" toml:"DisablePathCorrectionRedirection"`
@@ -662,11 +430,11 @@ type Configuration struct {
 	FireMethodNotAllowed bool `json:"fireMethodNotAllowed,omitempty" yaml:"FireMethodNotAllowed" toml:"FireMethodNotAllowed"`
 
 	// DisableBodyConsumptionOnUnmarshal manages the reading behavior of the context's body readers/binders.
-	// If set to true then it
+	// If setted to true then it
 	// disables the body consumption by the `context.UnmarshalBody/ReadJSON/ReadXML`.
 	//
 	// By-default io.ReadAll` is used to read the body from the `context.Request.Body which is an `io.ReadCloser`,
-	// if this field set to true then a new buffer will be created to read from and the request body.
+	// if this field setted to true then a new buffer will be created to read from and the request body.
 	// The body will not be changed and existing data before the
 	// context.UnmarshalBody/ReadJSON/ReadXML will be not consumed.
 	DisableBodyConsumptionOnUnmarshal bool `json:"disableBodyConsumptionOnUnmarshal,omitempty" yaml:"DisableBodyConsumptionOnUnmarshal" toml:"DisableBodyConsumptionOnUnmarshal"`
@@ -678,7 +446,7 @@ type Configuration struct {
 	// By-default a custom http error handler will be fired when "context.StatusCode(code)" called,
 	// code should be equal with the result of the the `context.StatusCodeNotSuccessful` in order to be received as an "http error handler".
 	//
-	// Developer may want this option to set as true in order to manually call the
+	// Developer may want this option to setted as true in order to manually call the
 	// error handlers when needed via "context#FireStatusCode(< 200 || >= 400)".
 	// HTTP Custom error handlers are being registered via app.OnErrorCode(code, handler)".
 	//
@@ -807,7 +575,7 @@ func (c Configuration) GetFireMethodNotAllowed() bool {
 // is disabled.
 //
 // By-default io.ReadAll` is used to read the body from the `context.Request.Body which is an `io.ReadCloser`,
-// if this field set to true then a new buffer will be created to read from and the request body.
+// if this field setted to true then a new buffer will be created to read from and the request body.
 // The body will not be changed and existing data before the
 // context.UnmarshalBody/ReadJSON/ReadXML will be not consumed.
 func (c Configuration) GetDisableBodyConsumptionOnUnmarshal() bool {
@@ -908,10 +676,6 @@ func (c Configuration) GetOther() map[string]interface{} {
 func WithConfiguration(c Configuration) Configurator {
 	return func(app *Application) {
 		main := app.config
-
-		if c.Tunneling.isEnabled() {
-			main.Tunneling = c.Tunneling
-		}
 
 		if v := c.IgnoreServerErrors; len(v) > 0 {
 			main.IgnoreServerErrors = append(main.IgnoreServerErrors, v...)

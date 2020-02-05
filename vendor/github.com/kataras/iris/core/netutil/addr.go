@@ -127,7 +127,7 @@ func ResolveAddr(addr string) string {
 		if a[portIdx:] == ":https" {
 			a = defaultServerHostname + ":443"
 		} else {
-			// if contains only :port	,then the : is the first letter, so we dont have set a hostname, lets set it
+			// if contains only :port	,then the : is the first letter, so we dont have setted a hostname, lets set it
 			a = defaultServerHostname + a
 		}
 	}
@@ -159,14 +159,12 @@ func ResolveVHost(addr string) string {
 	}
 
 	if idx := strings.IndexByte(addr, ':'); idx == 0 {
-		// only port, then return the 0.0.0.0
-		return "0.0.0.0" + addr[idx:]
+		// only port, then return the localhost hostname
+		return "localhost" + addr[idx:]
 	}
 
 	// with ':' in order to not replace the ipv6 loopback addresses
-	// addr = strings.Replace(addr, "0.0.0.0:", "localhost:", 1)
-	// some users are confusing from the log output ^.
-
+	addr = strings.Replace(addr, "0.0.0.0:", "localhost:", 1)
 	port := ResolvePort(addr)
 	if port == 80 || port == 443 {
 		return ResolveHostname(addr)
