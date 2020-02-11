@@ -19,11 +19,13 @@ func GetApp() *AppService {
 			model:    &ModelService{},
 			config:   &ConfigService{},
 			log:      &LogService{},
+			i18n:     &I18NService{},
 			services: map[string]Service{},
 			configs: map[string]Config{
 				HttpServiceName:  &HttpConfig{},
 				ModelServiceName: &ModelConfig{},
 				LogServiceName:   &LogConfig{},
+				I18NServiceName:  &I18NConfig{},
 			},
 		}
 
@@ -38,6 +40,11 @@ func Log(level LogLevel, msg string, tags ...string) {
 	app.log.Log(level, msg, tags...)
 }
 
+func I18NValue(name string, lang string) string {
+	app := GetApp()
+	return app.i18n.get(name, lang)
+}
+
 type AppService struct {
 	services map[string]Service
 	configs  map[string]Config
@@ -45,6 +52,7 @@ type AppService struct {
 	model    *ModelService
 	config   *ConfigService
 	log      *LogService
+	i18n     *I18NService
 }
 
 func (s *AppService) init() error {
@@ -57,6 +65,10 @@ func (s *AppService) init() error {
 	}
 
 	if err := s.log.Init(s); err != nil {
+		return err
+	}
+
+	if err := s.i18n.Init(s); err != nil {
 		return err
 	}
 
@@ -103,9 +115,9 @@ func (s *AppService) AddServices(services Services) {
 	}
 }
 
-func (s *AppService) AddConfigs(cfgs Configs) {
-	for k, v := range cfgs {
-		s.configs[v.ConfigName()] = cfgs[k]
+func (s *AppService) AddConfigs(configs Configs) {
+	for k, v := range configs {
+		s.configs[v.ConfigName()] = configs[k]
 	}
 }
 
@@ -113,7 +125,7 @@ func (s *AppService) validateConfigs() error {
 	for _, v := range s.configs {
 		err := v.Validate()
 		if err != nil {
-			fmt.Printf("Config Error: %s", err.Error())
+			fmt.Printf("Config Error: %s\n", err.Error())
 			return err
 		}
 	}
@@ -128,7 +140,7 @@ func (s *AppService) ConfFromFile(conf string) {
 func (s *AppService) GetConfig(name string, config interface{}) error {
 	configDefine := s.configs[name]
 	if configDefine == nil {
-		return errors.New(" Config Not Found")
+		return errors.New("Config Not Found ")
 	}
 
 	cfg := s.config.cfgs[name]
@@ -159,8 +171,4 @@ func (s *AppService) Model() Service {
 
 func (s *AppService) GetService(name string) Service {
 	return s.services[name]
-}
-
-func (s *AppService) RegistService(name string, service Service) {
-	s.services[name] = service
 }
